@@ -2,7 +2,7 @@
 
 ## What I built
 
-A live flight-price explainer: one simulated flight where clicking Wait sells more seats and pushes the price up through fare brackets, while Book now locks in today's price and shows how it compares to the opening one.
+A live flight-price explainer: three simulated flights, on different aircraft, where clicking Wait sells more seats and pushes the price up through fare brackets, while Book now locks in today's price and shows how it compares to the opening one.
 
 ## The moments that mattered
 

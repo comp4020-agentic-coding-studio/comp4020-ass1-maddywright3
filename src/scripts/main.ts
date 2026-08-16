@@ -47,6 +47,7 @@ if (
   let daysToDeparture = START_DAYS;
   let locked = false;
   let ambientTimer: number | undefined;
+  let lastRenderedPrice = initialPrice;
 
   const availableIndices = (): number[] => {
     const out: number[] = [];
@@ -75,6 +76,14 @@ if (
       seat.dataset.status = sold.has(idx) ? "sold" : "available";
     }
     priceEl.textContent = `$${price}`;
+    if (price !== lastRenderedPrice) {
+      priceEl.classList.remove("price-tick");
+      // Force a reflow so re-adding the class restarts the animation even if
+      // the price changes twice in quick succession.
+      void priceEl.offsetWidth;
+      priceEl.classList.add("price-tick");
+    }
+    lastRenderedPrice = price;
     seatsRemainingEl.textContent = String(TOTAL_SEATS - sold.size);
     daysRemainingEl.textContent = String(daysToDeparture);
     srSummaryEl.textContent =

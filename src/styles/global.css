@@ -56,6 +56,33 @@ a {
 .flight-status .price {
   font-size: 1.5rem;
   color: #0b5fff;
+  display: inline-block;
+}
+
+@keyframes price-tick {
+  0% {
+    transform: scale(1);
+  }
+
+  30% {
+    transform: scale(1.15);
+    color: #d9720c;
+  }
+
+  100% {
+    transform: scale(1);
+    color: #0b5fff;
+  }
+}
+
+.price-tick {
+  animation: price-tick 500ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .price-tick {
+    animation: none;
+  }
 }
 
 .seat-map {

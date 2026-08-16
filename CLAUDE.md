@@ -9,6 +9,34 @@ The
 publishes this deliverable's brief and spec, and this repo's name tells you
 which deliverable applies. Read both before you plan or build.
 
+## Commit guidelines
+
+Never commit without asking first. Show the proposed commit message and why,
+then wait for approval before running `git commit`.
+
+## Hard constraints
+
+- Static, client-side only. No backend.
+- No build step beyond what the starter template already has.
+- Vanilla HTML/CSS/TypeScript per the starter template.
+- Must work at both viewports: 1920x1080 (laptop/desktop) and 390x844 (phone,
+  Chrome DevTools iPhone preset).
+
+## Verification before acceptance
+
+Check this file every run. Before saying something works, state how it was
+checked:
+
+- Price/logic changes: walk through the maths for at least 3 sample states
+  (early, half sold, near full) and confirm the price is non-decreasing on the
+  normal path.
+- UI changes: confirm both 1920x1080 and 390x844 were checked.
+
+## When something is wrong
+
+Don't just retry. Propose a rule to add to this file that would prevent that
+class of mistake, wait for approval, add it, then fix the issue.
+
 ## How to work in here
 
 - Keep the dev server running (`pnpm dev`) so you see changes as you make them.

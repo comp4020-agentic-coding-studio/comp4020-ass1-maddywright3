@@ -1,4 +1,13 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
+import {
+  FARE_BUCKETS,
+  INITIAL_SOLD_SEAT_INDICES,
+  TOTAL_SEATS,
+  priceForLoadFactor,
+} from "../src/scripts/price";
 
 // Assignment 1 spec (https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/assessments/assignment-1/)
 // sorted into what a test can hold and what a person judges at the crit:
@@ -12,18 +21,95 @@ import { describe, expect, it } from "vitest";
 //   idea with a point of view, and nothing else" -- judged by a person at the
 //   crit; no test can hold these. Verify the viewports yourself before then.
 //
-// That leaves one line this file exists to cover: "the visitor does something
-// that changes what they see -- state the core interaction plainly enough to
-// write a test for it". Replace the placeholder below once the topic and
-// interaction are chosen -- assert the contract (what changes, and how the
-// visitor triggers it), not the implementation.
+// The core interaction: clicking "Wait" sells more seats and the price never
+// drops below what it was; clicking "Book now" locks the price and reveals a
+// readout comparing it to the flight's opening price.
+//
+// jsdom does not execute this page's bundled `type="module"` script (verified
+// directly — even with runScripts: "dangerously", a module script's listeners
+// never attach), so this file can't drive a real click and watch the DOM
+// react. It tests the two halves separately: the pricing model as a pure
+// function (imported directly, no DOM needed), and the built page's static
+// contract (the elements the interaction depends on actually exist, wired
+// with the right hooks, in the right initial state). The click-driven
+// interaction itself — including the zero-wait booking regression — is
+// covered in spec/interaction.test.ts, which drives a real headless browser.
 
-describe("core interaction", () => {
-  it("TODO: replace with the actual core interaction once chosen", () => {
-    throw new Error(
-      "No topic/interaction chosen yet. Replace this test with an assertion " +
-        "that the visitor's action (click/drag/type/etc.) changes what's on " +
-        "the built page -- see spec/README.md for the shape of a spec test.",
+describe("pricing model", () => {
+  it("is non-decreasing across every possible load factor", () => {
+    let previous = 0;
+    for (let sold = 0; sold <= TOTAL_SEATS; sold++) {
+      const price = priceForLoadFactor(sold, TOTAL_SEATS);
+      expect(price).toBeGreaterThanOrEqual(previous);
+      previous = price;
+    }
+  });
+
+  it("matches the model at an early, half-sold, and near-full state", () => {
+    // 11/30 sold ≈ 36.7% load factor -> first bucket (<= 40%) -> $89
+    expect(priceForLoadFactor(11, TOTAL_SEATS)).toBe(89);
+    // 16/30 sold ≈ 53.3% load factor -> second bucket (<= 60%) -> $119
+    expect(priceForLoadFactor(16, TOTAL_SEATS)).toBe(119);
+    // 29/30 sold ≈ 96.7% load factor -> sixth bucket (<= 97%) -> $419
+    expect(priceForLoadFactor(29, TOTAL_SEATS)).toBe(419);
+    // 30/30 sold = 100% load factor -> last bucket -> $589
+    expect(priceForLoadFactor(30, TOTAL_SEATS)).toBe(589);
+  });
+
+  it("has strictly increasing thresholds and prices, which is what makes it monotonic", () => {
+    for (let i = 1; i < FARE_BUCKETS.length; i++) {
+      expect(FARE_BUCKETS[i].maxLoadFactor).toBeGreaterThan(
+        FARE_BUCKETS[i - 1].maxLoadFactor,
+      );
+      expect(FARE_BUCKETS[i].price).toBeGreaterThan(
+        FARE_BUCKETS[i - 1].price,
+      );
+    }
+  });
+});
+
+describe("core interaction: built page contract", () => {
+  const distPath = resolve("dist/index.html");
+  const exists = existsSync(distPath);
+  const doc = exists
+    ? new JSDOM(readFileSync(distPath, "utf8")).window.document
+    : null;
+
+  it("built the page", () => {
+    expect(exists, `${distPath} not found — run \`pnpm build\` first.`).toBe(
+      true,
     );
+  });
+
+  it("renders every seat with an initial sold/available status", () => {
+    const seats = doc?.querySelectorAll('[data-testid="seat-map"] .seat');
+    expect(seats?.length).toBe(TOTAL_SEATS);
+    seats?.forEach((seat, index) => {
+      const expectedStatus = INITIAL_SOLD_SEAT_INDICES.includes(index)
+        ? "sold"
+        : "available";
+      expect(seat.getAttribute("data-status")).toBe(expectedStatus);
+    });
+  });
+
+  it("shows the opening price computed from the initial seat state", () => {
+    const expectedPrice = priceForLoadFactor(
+      INITIAL_SOLD_SEAT_INDICES.length,
+      TOTAL_SEATS,
+    );
+    expect(doc?.querySelector('[data-testid="price"]')?.textContent).toBe(
+      `$${expectedPrice}`,
+    );
+  });
+
+  it("has a wait button and a book button the visitor can act on", () => {
+    expect(doc?.querySelector('[data-testid="wait-button"]')).toBeTruthy();
+    expect(doc?.querySelector('[data-testid="book-button"]')).toBeTruthy();
+  });
+
+  it("has a result readout, present but hidden until the visitor books", () => {
+    const result = doc?.querySelector('[data-testid="result"]');
+    expect(result).toBeTruthy();
+    expect(result?.hasAttribute("hidden")).toBe(true);
   });
 });

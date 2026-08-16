@@ -1,20 +1,84 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import {
+  INITIAL_SOLD_SEAT_INDICES,
+  TOTAL_SEATS,
+  priceForLoadFactor,
+} from "../scripts/price";
+
+const soldSet = new Set(INITIAL_SOLD_SEAT_INDICES);
+const seats = Array.from({ length: TOTAL_SEATS }, (_, i) => ({
+  index: i,
+  sold: soldSet.has(i),
+}));
+const initialPrice = priceForLoadFactor(soldSet.size, TOTAL_SEATS);
+const seatsRemaining = TOTAL_SEATS - soldSet.size;
+const startDays = 60;
 ---
 
-<Layout title="COMP4020 prototype">
+<Layout title="Wait, and the price goes up — a flight-price explainer">
   <header>
     <nav aria-label="Primary">
       <a href="./">Home</a>
     </nav>
   </header>
   <main>
-    <h1>COMP4020 prototype</h1>
+    <h1>Wait, and the price goes up</h1>
     <p data-testid="intro">
-      Replace this with your prototype. This week's brief is on the course
-      website; <code>spec/README.md</code> explains how the checks in this repo
-      relate to it.
+      This is one flight, watched live. Seats sell in the background as you
+      read — other buyers, acting in real time. Every seat that goes marks
+      the flight up to its next price bracket. Click <strong>Wait</strong> to
+      let more time (and more buyers) pass, or <strong>Book now</strong> to
+      lock in today's price.
     </p>
+
+    <section class="flight-status" aria-label="Flight status">
+      <dl>
+        <div>
+          <dt>Flight</dt>
+          <dd>QF738 CBR&rarr;SYD</dd>
+        </div>
+        <div>
+          <dt>Days to departure</dt>
+          <dd data-testid="days-remaining">{startDays}</dd>
+        </div>
+        <div>
+          <dt>Seats remaining</dt>
+          <dd data-testid="seats-remaining">{seatsRemaining}</dd>
+        </div>
+        <div>
+          <dt>Current price</dt>
+          <dd data-testid="price" class="price">${initialPrice}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <div class="seat-map" data-testid="seat-map" aria-hidden="true">
+      {
+        seats.map((seat) => (
+          <div
+            class="seat"
+            data-index={seat.index}
+            data-status={seat.sold ? "sold" : "available"}
+          />
+        ))
+      }
+    </div>
+
+    <p class="visually-hidden" aria-live="polite" data-testid="sr-summary">
+      {soldSet.size} of {TOTAL_SEATS} seats sold. Current price ${
+        initialPrice
+      }. {startDays} days to departure.
+    </p>
+
+    <div class="controls">
+      <button type="button" data-testid="wait-button">Wait</button>
+      <button type="button" data-testid="book-button">Book now</button>
+    </div>
+
+    <div class="result" data-testid="result" hidden>
+      <div data-testid="result-text"></div>
+    </div>
   </main>
   <script src="../scripts/main.ts"></script>
 </Layout>

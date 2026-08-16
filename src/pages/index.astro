@@ -28,6 +28,7 @@ const seats = Array.from({ length: TOTAL_SEATS }, (_, i) => {
 
 <Layout title="Wait, and the price goes up — a flight-price explainer">
   <header>
+    <p class="top-bar">LIVE FLIGHT &middot; QF738 CBR&rarr;SYD</p>
     <nav aria-label="Primary">
       <a href="./">Home</a>
     </nav>
@@ -76,6 +77,15 @@ const seats = Array.from({ length: TOTAL_SEATS }, (_, i) => {
           />
         ))
       }
+    </div>
+
+    <div class="seat-legend" aria-hidden="true">
+      <span class="legend-item">
+        <span class="legend-dot" data-status="sold"></span>Sold
+      </span>
+      <span class="legend-item">
+        <span class="legend-dot" data-status="available"></span>Available
+      </span>
     </div>
 
     <p class="seat-info" data-testid="seat-info" aria-live="polite" hidden>

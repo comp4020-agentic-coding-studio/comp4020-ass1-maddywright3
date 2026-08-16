@@ -28,6 +28,20 @@ a {
   color: #ffb020;
 }
 
+.home-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.9rem;
+  font-size: 0.85rem;
+  text-decoration: none;
+  border: 1px solid rgb(255 176 32 / 45%);
+  border-radius: 999px;
+}
+
+.home-link:hover {
+  background: rgb(255 176 32 / 10%);
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -78,6 +92,33 @@ a {
   display: inline-block;
 }
 
+.plane-picker {
+  margin: 1.5rem 0;
+}
+
+.plane-picker label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.85rem;
+  color: #7c93a8;
+}
+
+.plane-picker select {
+  font: inherit;
+  font-size: 1rem;
+  padding: 0.5rem 0.75rem;
+  color: #e6edf3;
+  background: #0f2135;
+  border: 1px solid rgb(255 176 32 / 25%);
+  border-radius: 0.4rem;
+}
+
+.plane-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.85rem;
+  color: #7c93a8;
+}
+
 @keyframes price-tick {
   0% {
     transform: scale(1);
@@ -106,7 +147,7 @@ a {
 
 .seat-map {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(var(--seat-cols, 6), 1fr);
   gap: 0.5rem;
   max-width: 22rem;
   margin: 1.5rem auto;
@@ -121,10 +162,6 @@ a {
   padding: 0;
   font: inherit;
   cursor: pointer;
-}
-
-.seat:nth-child(6n + 3) {
-  margin-right: 0.75rem;
 }
 
 .seat[data-status="sold"] {
@@ -149,6 +186,10 @@ a {
 .seat:focus-visible {
   outline: 0.15rem solid #ffb020;
   outline-offset: 0.1rem;
+}
+
+.seat-map[data-cols="6"] .seat:nth-child(6n + 3) {
+  margin-right: 0.75rem;
 }
 
 .seat-legend {
@@ -223,6 +264,18 @@ a {
   cursor: not-allowed;
 }
 
+.controls .reset-button {
+  background: transparent;
+  color: #7c93a8;
+  border-color: rgb(124 147 168 / 45%);
+  font-size: 0.95rem;
+}
+
+.controls .reset-button:hover {
+  color: #e6edf3;
+  border-color: rgb(124 147 168 / 80%);
+}
+
 .result {
   margin-top: 1.5rem;
   padding: 1rem 1.25rem;
@@ -273,7 +326,7 @@ a {
     margin: 0.75rem auto;
   }
 
-  .seat:nth-child(6n + 3) {
+  .seat-map[data-cols="6"] .seat:nth-child(6n + 3) {
     margin-right: 0.45rem;
   }
 

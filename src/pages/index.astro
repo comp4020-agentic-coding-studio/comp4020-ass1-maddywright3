@@ -1,23 +1,28 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import {
-  INITIAL_SOLD_SEAT_INDICES,
-  TOTAL_SEATS,
+  PLANE_TYPES,
   initialSeatSaleInfo,
-  priceForLoadFactor,
+  priceForFlight,
 } from "../scripts/price";
 
-const soldSet = new Set(INITIAL_SOLD_SEAT_INDICES);
-const initialPrice = priceForLoadFactor(soldSet.size, TOTAL_SEATS);
-const seatsRemaining = TOTAL_SEATS - soldSet.size;
+const plane = PLANE_TYPES[0];
+const soldSet = new Set(plane.initialSoldIndices);
 const startDays = 60;
 const bookingWindowStartDays = 120;
+const initialPrice = priceForFlight(soldSet.size, plane, startDays).price;
+const seatsRemaining = plane.totalSeats - soldSet.size;
 
 // So the very first paint (before the client script runs) already carries
 // correct aria-labels for a screen reader or keyboard user landing cold.
-const initialSaleInfo = initialSeatSaleInfo(startDays, bookingWindowStartDays);
+const initialSaleInfo = initialSeatSaleInfo(
+  startDays,
+  bookingWindowStartDays,
+  plane.totalSeats,
+  plane.initialSoldIndices,
+);
 
-const seats = Array.from({ length: TOTAL_SEATS }, (_, i) => {
+const seats = Array.from({ length: plane.totalSeats }, (_, i) => {
   const sale = initialSaleInfo.get(i);
   const label = sale
     ? `Seat ${i + 1}, sold in the $${sale.price} fare bracket, about ${sale.daysBeforeDeparture} days before departure`
@@ -30,7 +35,7 @@ const seats = Array.from({ length: TOTAL_SEATS }, (_, i) => {
   <header>
     <p class="top-bar">LIVE FLIGHT &middot; QF738 CBR&rarr;SYD</p>
     <nav aria-label="Primary">
-      <a href="./">Home</a>
+      <a href="./" class="home-link">Home</a>
     </nav>
   </header>
   <main>
@@ -42,6 +47,26 @@ const seats = Array.from({ length: TOTAL_SEATS }, (_, i) => {
       let more time (and more buyers) pass, or <strong>Book now</strong> to
       lock in today's price.
     </p>
+
+    <div class="plane-picker">
+      <label for="plane-select">Aircraft to simulate</label>
+      <select id="plane-select" data-testid="plane-select">
+        {
+          PLANE_TYPES.map((p) => (
+            <option value={p.id} selected={p.id === plane.id}>
+              {p.label}
+            </option>
+          ))
+        }
+      </select>
+      <p class="plane-note">
+        Wide-body long-haul demand is driven by discretionary leisure travel
+        — far less predictable than the regional and narrow-body routes
+        here. If a wide-body flight is still badly under-booked close to
+        departure, the airline may drop the price again rather than fly it
+        nearly empty; that risk doesn't apply to the other two aircraft.
+      </p>
+    </div>
 
     <section class="flight-status" aria-label="Flight status">
       <dl>
@@ -64,7 +89,13 @@ const seats = Array.from({ length: TOTAL_SEATS }, (_, i) => {
       </dl>
     </section>
 
-    <div class="seat-map" data-testid="seat-map" aria-label="Seat map">
+    <div
+      class="seat-map"
+      data-testid="seat-map"
+      data-cols={plane.columns}
+      style={`--seat-cols: ${plane.columns}`}
+      aria-label="Seat map"
+    >
       {
         seats.map((seat) => (
           <button
@@ -92,7 +123,7 @@ const seats = Array.from({ length: TOTAL_SEATS }, (_, i) => {
     </p>
 
     <p class="visually-hidden" aria-live="polite" data-testid="sr-summary">
-      {soldSet.size} of {TOTAL_SEATS} seats sold. Current price ${
+      {soldSet.size} of {plane.totalSeats} seats sold. Current price ${
         initialPrice
       }. {startDays} days to departure.
     </p>
@@ -100,6 +131,9 @@ const seats = Array.from({ length: TOTAL_SEATS }, (_, i) => {
     <div class="controls">
       <button type="button" data-testid="wait-button">Wait</button>
       <button type="button" data-testid="book-button">Book now</button>
+      <button type="button" class="reset-button" data-testid="reset-button">
+        Reset
+      </button>
     </div>
 
     <div class="result" data-testid="result" hidden>

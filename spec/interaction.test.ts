@@ -139,4 +139,62 @@ describe.skipIf(!distExists)("core interaction: real clicks in a browser", () =>
     );
     expect(resultText).not.toContain("before the price had moved at all");
   });
+
+  it("Reset restores the initial price, seats remaining, days, and enabled controls", async () => {
+    const priceEl = page.getByTestId("price");
+    const seatsRemainingEl = page.getByTestId("seats-remaining");
+    const daysRemainingEl = page.getByTestId("days-remaining");
+
+    const initialPrice = await priceEl.textContent();
+    const initialRemaining = await seatsRemainingEl.textContent();
+    const initialDays = await daysRemainingEl.textContent();
+
+    for (let i = 0; i < 3; i++) {
+      await page.getByTestId("wait-button").click();
+    }
+    // Sanity check the clicks actually changed something before Reset undoes it.
+    expect(await seatsRemainingEl.textContent()).not.toBe(initialRemaining);
+
+    await page.getByTestId("reset-button").click();
+
+    expect(await priceEl.textContent()).toBe(initialPrice);
+    expect(await seatsRemainingEl.textContent()).toBe(initialRemaining);
+    expect(await daysRemainingEl.textContent()).toBe(initialDays);
+    expect(await page.getByTestId("result").isVisible()).toBe(false);
+    expect(await page.getByTestId("wait-button").isDisabled()).toBe(false);
+    expect(await page.getByTestId("book-button").isDisabled()).toBe(false);
+  });
+
+  it("switching the aircraft rebuilds the seat map to the new plane's seat count and resets state", async () => {
+    const seatButtons = page.locator('[data-testid="seat-map"] .seat');
+    expect(await seatButtons.count()).toBe(30);
+
+    await page.getByTestId("wait-button").click();
+
+    await page.getByTestId("plane-select").selectOption("narrowbody");
+
+    expect(await seatButtons.count()).toBe(96);
+    expect(await page.getByTestId("days-remaining").textContent()).toBe("60");
+    expect(await page.getByTestId("result").isVisible()).toBe(false);
+    expect(await page.getByTestId("wait-button").isDisabled()).toBe(false);
+    expect(await page.getByTestId("book-button").isDisabled()).toBe(false);
+  });
+
+  it("the wide-body aircraft can drop its price back down before departure (the distress discount)", async () => {
+    await page.getByTestId("plane-select").selectOption("widebody");
+
+    const priceEl = page.getByTestId("price");
+    const prices: number[] = [
+      Number((await priceEl.textContent())?.replace("$", "")),
+    ];
+
+    for (let i = 0; i < 25; i++) {
+      if (await page.getByTestId("wait-button").isDisabled()) break;
+      await page.getByTestId("wait-button").click();
+      prices.push(Number((await priceEl.textContent())?.replace("$", "")));
+    }
+
+    const droppedAtLeastOnce = prices.some((p, i) => i > 0 && p < prices[i - 1]);
+    expect(droppedAtLeastOnce).toBe(true);
+  }, 30000);
 });

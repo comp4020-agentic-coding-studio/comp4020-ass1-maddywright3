@@ -5,7 +5,10 @@ import { describe, expect, it } from "vitest";
 import {
   FARE_BUCKETS,
   INITIAL_SOLD_SEAT_INDICES,
+  PLANE_TYPES,
   TOTAL_SEATS,
+  evenlySpacedIndices,
+  priceForFlight,
   priceForLoadFactor,
 } from "../src/scripts/price";
 
@@ -65,6 +68,90 @@ describe("pricing model", () => {
         FARE_BUCKETS[i - 1].price,
       );
     }
+  });
+});
+
+describe("plane types and the distress-discount exception", () => {
+  it("only the wide-body plane is distress-prone", () => {
+    const proneIds = PLANE_TYPES.filter((p) => p.distressProne).map(
+      (p) => p.id,
+    );
+    expect(proneIds).toEqual(["widebody"]);
+  });
+
+  it("keeps the regional plane's seats and opening state exactly as today", () => {
+    const regional = PLANE_TYPES[0];
+    expect(regional.id).toBe("regional");
+    expect(regional.totalSeats).toBe(TOTAL_SEATS);
+    expect(regional.initialSoldIndices).toBe(INITIAL_SOLD_SEAT_INDICES);
+  });
+
+  it("evenlySpacedIndices produces the requested count, in bounds, for each plane", () => {
+    for (const plane of PLANE_TYPES) {
+      const indices = evenlySpacedIndices(10, plane.totalSeats);
+      expect(indices.length).toBeLessThanOrEqual(10);
+      for (const i of indices) {
+        expect(i).toBeGreaterThanOrEqual(0);
+        expect(i).toBeLessThan(plane.totalSeats);
+      }
+    }
+    expect(evenlySpacedIndices(0, 180)).toEqual([]);
+  });
+
+  it("never lets a non-distress-prone plane's price differ from the plain load-factor curve", () => {
+    const [regional, narrowbody] = PLANE_TYPES;
+    for (const plane of [regional, narrowbody]) {
+      for (let sold = 0; sold <= plane.totalSeats; sold += 5) {
+        for (const days of [60, 30, 15, 1]) {
+          const { price, distressed } = priceForFlight(sold, plane, days);
+          expect(distressed).toBe(false);
+          expect(price).toBe(priceForLoadFactor(sold, plane.totalSeats));
+        }
+      }
+    }
+  });
+
+  it("only ever matches or undercuts the normal curve for the distress-prone plane, never exceeds it", () => {
+    const widebody = PLANE_TYPES.find((p) => p.id === "widebody");
+    if (!widebody) throw new Error("widebody plane type not found");
+    for (let sold = 0; sold <= widebody.totalSeats; sold += 5) {
+      for (const days of [60, 30, 20, 10, 1]) {
+        const { price } = priceForFlight(sold, widebody, days);
+        expect(price).toBeLessThanOrEqual(
+          priceForLoadFactor(sold, widebody.totalSeats),
+        );
+      }
+    }
+  });
+
+  it("walks 3 sample states for the distress-prone plane: early, under-booked near departure, and well-booked near departure", () => {
+    const widebody = PLANE_TYPES.find((p) => p.id === "widebody");
+    if (!widebody) throw new Error("widebody plane type not found");
+
+    // Early (60 days out): outside the distress window regardless of load
+    // factor, so the normal curve always applies.
+    const early = priceForFlight(70, widebody, 60);
+    expect(early).toEqual({
+      price: priceForLoadFactor(70, widebody.totalSeats),
+      distressed: false,
+    });
+
+    // Near departure (10 days out, inside the 20-day window), badly
+    // under-booked (125/180 ≈ 69% < the 75% distress threshold): normal
+    // curve says $159, but the distress rule undercuts it back to $89.
+    const underBooked = priceForFlight(125, widebody, 10);
+    expect(priceForLoadFactor(125, widebody.totalSeats)).toBe(159);
+    expect(underBooked).toEqual({ price: 89, distressed: true });
+
+    // Near departure (10 days out), but well-booked (170/180 ≈ 94% >= the
+    // 75% threshold): distress condition doesn't hold, so the normal
+    // (much higher) curve price stands untouched.
+    const wellBooked = priceForFlight(170, widebody, 10);
+    expect(wellBooked).toEqual({
+      price: priceForLoadFactor(170, widebody.totalSeats),
+      distressed: false,
+    });
+    expect(wellBooked.price).toBeGreaterThan(underBooked.price);
   });
 });
 

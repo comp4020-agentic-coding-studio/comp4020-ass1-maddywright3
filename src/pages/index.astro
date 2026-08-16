@@ -3,17 +3,27 @@ import Layout from "../layouts/Layout.astro";
 import {
   INITIAL_SOLD_SEAT_INDICES,
   TOTAL_SEATS,
+  initialSeatSaleInfo,
   priceForLoadFactor,
 } from "../scripts/price";
 
 const soldSet = new Set(INITIAL_SOLD_SEAT_INDICES);
-const seats = Array.from({ length: TOTAL_SEATS }, (_, i) => ({
-  index: i,
-  sold: soldSet.has(i),
-}));
 const initialPrice = priceForLoadFactor(soldSet.size, TOTAL_SEATS);
 const seatsRemaining = TOTAL_SEATS - soldSet.size;
 const startDays = 60;
+const bookingWindowStartDays = 120;
+
+// So the very first paint (before the client script runs) already carries
+// correct aria-labels for a screen reader or keyboard user landing cold.
+const initialSaleInfo = initialSeatSaleInfo(startDays, bookingWindowStartDays);
+
+const seats = Array.from({ length: TOTAL_SEATS }, (_, i) => {
+  const sale = initialSaleInfo.get(i);
+  const label = sale
+    ? `Seat ${i + 1}, sold in the $${sale.price} fare bracket, about ${sale.daysBeforeDeparture} days before departure`
+    : `Seat ${i + 1}, still available, would cost $${initialPrice} now`;
+  return { index: i, sold: soldSet.has(i), label };
+});
 ---
 
 <Layout title="Wait, and the price goes up — a flight-price explainer">
@@ -53,17 +63,23 @@ const startDays = 60;
       </dl>
     </section>
 
-    <div class="seat-map" data-testid="seat-map" aria-hidden="true">
+    <div class="seat-map" data-testid="seat-map" aria-label="Seat map">
       {
         seats.map((seat) => (
-          <div
+          <button
+            type="button"
             class="seat"
             data-index={seat.index}
             data-status={seat.sold ? "sold" : "available"}
+            aria-label={seat.label}
+            tabindex={seat.index === 0 ? 0 : -1}
           />
         ))
       }
     </div>
+
+    <p class="seat-info" data-testid="seat-info" aria-live="polite" hidden>
+    </p>
 
     <p class="visually-hidden" aria-live="polite" data-testid="sr-summary">
       {soldSet.size} of {TOTAL_SEATS} seats sold. Current price ${

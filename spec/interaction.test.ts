@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { readFile } from "node:fs/promises";
+import { type Server, createServer } from "node:http";
 import { resolve } from "node:path";
 import { type Browser, type Page, chromium } from "playwright";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -7,33 +8,81 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 // jsdom can't execute this page's bundled `type="module"` script (verified
 // directly — a module script's listeners never attach even with
 // runScripts: "dangerously"), so the click-driven interaction itself can only
-// be exercised in a real browser. dist/index.html inlines both its <style>
-// and its script (astro.config.ts: build.format "file", no external chunks
-// at this page's size), so it loads directly off disk via file:// with no
-// dev/preview server needed.
+// be exercised in a real browser.
+//
+// The page's script is bundled into an external chunk referenced by an
+// absolute `/comp4020-ass1-maddywright3/...` path (astro.config.ts's `base`)
+// whenever it's too large for Astro to inline — which it was NOT, until this
+// page grew past that threshold. That broke a plain file:// load outright
+// (no such root exists on disk), and this test caught it: every click
+// silently did nothing. So instead of relying on the page staying small
+// enough to stay inlined, this serves dist/ over real HTTP with the site's
+// base path mapped, matching how the page is actually deployed.
 
-const distPath = resolve("dist/index.html");
-const distExists = existsSync(distPath);
-const distUrl = pathToFileURL(distPath).href;
+const DIST_DIR = resolve("dist");
+const BASE_PATH = "/comp4020-ass1-maddywright3";
+const distExists = existsSync(resolve(DIST_DIR, "index.html"));
+
+const CONTENT_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+};
+
+function contentTypeFor(path: string): string {
+  const ext = path.slice(path.lastIndexOf("."));
+  return CONTENT_TYPES[ext] ?? "application/octet-stream";
+}
 
 describe.skipIf(!distExists)("core interaction: real clicks in a browser", () => {
+  let server: Server;
+  let baseUrl: string;
   let browser: Browser;
   let page: Page;
 
   beforeAll(async () => {
+    server = createServer((req, res) => {
+      const urlPath = req.url ?? "/";
+      if (!urlPath.startsWith(BASE_PATH)) {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      let relative = urlPath.slice(BASE_PATH.length);
+      if (relative === "" || relative === "/") relative = "/index.html";
+      readFile(resolve(DIST_DIR, `.${relative}`))
+        .then((data) => {
+          res.writeHead(200, { "content-type": contentTypeFor(relative) });
+          res.end(data);
+        })
+        .catch(() => {
+          res.writeHead(404);
+          res.end();
+        });
+    });
+    await new Promise<void>((res) => server.listen(0, "127.0.0.1", res));
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("failed to bind test server");
+    }
+    baseUrl = `http://127.0.0.1:${address.port}${BASE_PATH}/`;
     browser = await chromium.launch();
   });
 
   afterAll(async () => {
     await browser.close();
+    await new Promise<void>((res) => server.close(() => res()));
   });
 
   beforeEach(async () => {
     page = await browser.newPage();
-    await page.goto(distUrl);
+    await page.goto(baseUrl);
   });
 
   it("clicking Wait sells more seats and never drops the price", async () => {
+    // Real-browser tests: give the first connection to the freshly-bound
+    // local server, plus 6 sequential clicks, more room than vitest's
+    // default 5s (this was flaky at the default, never on the logic itself).
     const priceEl = page.getByTestId("price");
     const seatsRemainingEl = page.getByTestId("seats-remaining");
 
@@ -49,7 +98,7 @@ describe.skipIf(!distExists)("core interaction: real clicks in a browser", () =>
 
     expect(laterRemaining).toBeLessThan(initialRemaining);
     expect(laterPrice).toBeGreaterThanOrEqual(initialPrice);
-  });
+  }, 15000);
 
   it("booking immediately, with no Wait clicks, shows the zero-wait message — not the price-rise one", async () => {
     // This is the exact bug reported manually: booking before the price has

@@ -40,3 +40,35 @@ export function priceForLoadFactor(
   const bucket = FARE_BUCKETS.find((b) => loadFactor <= b.maxLoadFactor);
   return (bucket ?? FARE_BUCKETS[FARE_BUCKETS.length - 1]).price;
 }
+
+export interface SeatSale {
+  price: number;
+  daysBeforeDeparture: number;
+}
+
+// Fabricates a plausible sale history for the seats already sold when the
+// page loads. Real booking curves open ~11 months out; this page's visible
+// window is only the last `startDays`, so these seats are backdated into a
+// wider window before it (earliest seat index sold first), rather than
+// claiming a precision the model doesn't have.
+export function initialSeatSaleInfo(
+  startDays: number,
+  bookingWindowStartDays: number,
+  totalSeats: number = TOTAL_SEATS,
+  initialSoldIndices: number[] = INITIAL_SOLD_SEAT_INDICES,
+): Map<number, SeatSale> {
+  const span = bookingWindowStartDays - (startDays + 1);
+  const info = new Map<number, SeatSale>();
+  initialSoldIndices.forEach((seatIndex, i) => {
+    const rank = i + 1;
+    const price = priceForLoadFactor(rank, totalSeats);
+    const daysBeforeDeparture =
+      initialSoldIndices.length > 1
+        ? Math.round(
+            bookingWindowStartDays - (span * i) / (initialSoldIndices.length - 1),
+          )
+        : bookingWindowStartDays;
+    info.set(seatIndex, { price, daysBeforeDeparture });
+  });
+  return info;
+}

@@ -98,6 +98,10 @@ a {
   border-radius: 0.35rem;
   background: #cdd5e0;
   position: relative;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
 }
 
 .seat:nth-child(6n + 3) {
@@ -121,6 +125,18 @@ a {
 
 .seat[data-status="available"] {
   background: #7fc79a;
+}
+
+.seat:focus-visible {
+  outline: 0.15rem solid #0b5fff;
+  outline-offset: 0.1rem;
+}
+
+.seat-info {
+  min-height: 1.2rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+  color: #33404d;
 }
 
 .controls {

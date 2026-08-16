@@ -1,4 +1,8 @@
-import { TOTAL_SEATS, priceForLoadFactor } from "./price";
+import {
+  TOTAL_SEATS,
+  initialSeatSaleInfo,
+  priceForLoadFactor,
+} from "./price";
 
 const seatMap = document.querySelector<HTMLElement>('[data-testid="seat-map"]');
 const priceEl = document.querySelector<HTMLElement>('[data-testid="price"]');
@@ -21,6 +25,9 @@ const resultTextEl = document.querySelector<HTMLElement>(
 const srSummaryEl = document.querySelector<HTMLElement>(
   '[data-testid="sr-summary"]',
 );
+const seatInfoEl = document.querySelector<HTMLElement>(
+  '[data-testid="seat-info"]',
+);
 
 if (
   seatMap &&
@@ -31,10 +38,12 @@ if (
   bookButton &&
   resultEl &&
   resultTextEl &&
-  srSummaryEl
+  srSummaryEl &&
+  seatInfoEl
 ) {
   const START_DAYS = 60;
   const AMBIENT_INTERVAL_MS = 3500;
+  const BOOKING_WINDOW_START_DAYS = 120;
 
   const seatEls = Array.from(seatMap.querySelectorAll<HTMLElement>(".seat"));
   const sold = new Set(
@@ -49,6 +58,11 @@ if (
   let ambientTimer: number | undefined;
   let lastRenderedPrice = initialPrice;
 
+  // Per sold seat, the fare bucket price and days-before-departure it sold
+  // at — fabricated for the seats already sold when the page loads, then
+  // recorded for real as each seat sells during the session.
+  const seatSaleInfo = initialSeatSaleInfo(START_DAYS, BOOKING_WINDOW_START_DAYS);
+
   const availableIndices = (): number[] => {
     const out: number[] = [];
     for (let i = 0; i < TOTAL_SEATS; i++) {
@@ -57,16 +71,42 @@ if (
     return out;
   };
 
-  const sellSeats = (count: number): void => {
+  const sellSeats = (count: number, daysAtSale: number): void => {
     const available = availableIndices();
     const n = Math.min(count, available.length);
+    const picked: number[] = [];
     for (let i = 0; i < n; i++) {
       const pick = available.splice(
         Math.floor(Math.random() * available.length),
         1,
       )[0];
       sold.add(pick);
+      picked.push(pick);
     }
+    const priceAtSale = priceForLoadFactor(sold.size, TOTAL_SEATS);
+    for (const idx of picked) {
+      seatSaleInfo.set(idx, { price: priceAtSale, daysBeforeDeparture: daysAtSale });
+    }
+  };
+
+  const seatLabel = (idx: number, currentPrice: number): string => {
+    const sale = seatSaleInfo.get(idx);
+    if (sale) {
+      return (
+        `Seat ${idx + 1}, sold in the $${sale.price} fare bracket, ` +
+        `about ${sale.daysBeforeDeparture} days before departure`
+      );
+    }
+    return `Seat ${idx + 1}, still available, would cost $${currentPrice} now`;
+  };
+
+  const showSeatInfo = (idx: number, currentPrice: number): void => {
+    seatInfoEl.hidden = false;
+    const sale = seatSaleInfo.get(idx);
+    seatInfoEl.textContent = sale
+      ? `Seat ${idx + 1} — sold in the $${sale.price} fare bracket, about ` +
+        `${sale.daysBeforeDeparture} days before departure.`
+      : `Seat ${idx + 1} — still available. Booking it now would cost $${currentPrice}.`;
   };
 
   const render = (): number => {
@@ -74,6 +114,7 @@ if (
     for (const seat of seatEls) {
       const idx = Number(seat.dataset.index);
       seat.dataset.status = sold.has(idx) ? "sold" : "available";
+      seat.setAttribute("aria-label", seatLabel(idx, price));
     }
     priceEl.textContent = `$${price}`;
     if (price !== lastRenderedPrice) {
@@ -166,11 +207,11 @@ if (
 
   waitButton.addEventListener("click", () => {
     if (locked) return;
-    sellSeats(2 + Math.floor(Math.random() * 3)); // 2-4 seats
     daysToDeparture = Math.max(
       0,
       daysToDeparture - (5 + Math.floor(Math.random() * 5)), // 5-9 days
     );
+    sellSeats(2 + Math.floor(Math.random() * 3), daysToDeparture); // 2-4 seats
     render();
     checkForcedEnd();
   });
@@ -182,11 +223,44 @@ if (
     showResult("booked", price);
   });
 
+  // Roving tabindex (WAI-ARIA grid pattern): only one seat is ever a Tab
+  // stop, so keyboard users still reach Wait/Book in two tabs, not thirty-two.
+  // Arrow keys move the "current" seat within the grid instead.
+  const SEAT_COLUMNS = 6;
+
+  const focusSeat = (idx: number): void => {
+    for (const seat of seatEls) {
+      seat.tabIndex = Number(seat.dataset.index) === idx ? 0 : -1;
+    }
+    seatEls[idx]?.focus();
+  };
+
+  seatEls.forEach((seat, idx) => {
+    seat.addEventListener("click", () => {
+      showSeatInfo(idx, lastRenderedPrice);
+      focusSeat(idx);
+    });
+
+    seat.addEventListener("keydown", (event) => {
+      const deltas: Record<string, number> = {
+        ArrowRight: 1,
+        ArrowLeft: -1,
+        ArrowDown: SEAT_COLUMNS,
+        ArrowUp: -SEAT_COLUMNS,
+      };
+      const delta = deltas[event.key];
+      if (delta === undefined) return;
+      event.preventDefault();
+      const next = Math.min(Math.max(idx + delta, 0), seatEls.length - 1);
+      focusSeat(next);
+    });
+  });
+
   render();
 
   ambientTimer = window.setInterval(() => {
     if (locked) return;
-    sellSeats(1 + Math.floor(Math.random() * 2)); // 1-2 seats
+    sellSeats(1 + Math.floor(Math.random() * 2), daysToDeparture); // 1-2 seats
     render();
     checkForcedEnd();
   }, AMBIENT_INTERVAL_MS);

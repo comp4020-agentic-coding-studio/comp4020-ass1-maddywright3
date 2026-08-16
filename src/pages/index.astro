@@ -1,9 +1,14 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import {
+  type CabinSection,
+  type SeatLayoutEntry,
   PLANE_TYPES,
+  buildSeatLayout,
   initialSeatSaleInfo,
   priceForFlight,
+  priceForSeat,
+  sectionForSeat,
 } from "../scripts/price";
 
 const plane = PLANE_TYPES[0];
@@ -20,32 +25,62 @@ const initialSaleInfo = initialSeatSaleInfo(
   bookingWindowStartDays,
   plane.totalSeats,
   plane.initialSoldIndices,
+  plane.fareBuckets,
 );
 
-const seats = Array.from({ length: plane.totalSeats }, (_, i) => {
-  const sale = initialSaleInfo.get(i);
-  const label = sale
-    ? `Seat ${i + 1}, sold in the $${sale.price} fare bracket, about ${sale.daysBeforeDeparture} days before departure`
-    : `Seat ${i + 1}, still available, would cost $${initialPrice} now`;
-  return { index: i, sold: soldSet.has(i), label };
-});
+function seatLabel(idx: number): string {
+  const section = sectionForSeat(idx, plane);
+  const sale = initialSaleInfo.get(idx);
+  if (sale) {
+    const soldPrice = priceForSeat(sale.price, section);
+    return (
+      `Seat ${idx + 1}, ${section.label} (${section.perk}), sold for ` +
+      `$${soldPrice}, about ${sale.daysBeforeDeparture} days before departure`
+    );
+  }
+  const price = priceForSeat(initialPrice, section);
+  return (
+    `Seat ${idx + 1}, ${section.label} (${section.perk}), still available, ` +
+    `would cost $${price} now`
+  );
+}
+
+// Group the flat seat-layout entries into per-section runs for rendering, so
+// the markup mirrors buildSeatLayout's own section boundaries exactly —
+// main.ts's client-side rebuild groups the same way.
+interface SectionGroup {
+  section: CabinSection;
+  cols: number;
+  entries: SeatLayoutEntry[];
+}
+const sectionGroups: SectionGroup[] = [];
+for (const entry of buildSeatLayout(plane)) {
+  const last = sectionGroups[sectionGroups.length - 1];
+  if (last && last.section === entry.section) {
+    last.entries.push(entry);
+  } else {
+    sectionGroups.push({
+      section: entry.section,
+      cols: entry.section.columnGroups.reduce((a, b) => a + b, 0),
+      entries: [entry],
+    });
+  }
+}
 ---
 
-<Layout title="Wait, and the price goes up — a flight-price explainer">
-  <header>
-    <p class="top-bar">LIVE FLIGHT &middot; QF738 CBR&rarr;SYD</p>
-    <nav aria-label="Primary">
-      <a href="./" class="home-link">Home</a>
-    </nav>
-  </header>
+<Layout title="Should you book now, or wait? — a live flight-price explainer">
+  <nav aria-label="Skip">
+    <a href="#controls" class="skip-link">Skip to booking controls</a>
+  </nav>
   <main>
-    <h1>Wait, and the price goes up</h1>
+    <h1>Should you book this flight now, or wait?</h1>
     <p data-testid="intro">
-      This is one flight, watched live. Seats sell in the background as you
-      read — other buyers, acting in real time. Every seat that goes marks
-      the flight up to its next price bracket. Click <strong>Wait</strong> to
-      let more time (and more buyers) pass, or <strong>Book now</strong> to
-      lock in today's price.
+      Airline fares don't drift — they climb in fixed steps, and once a step
+      is taken it never gives ground back. Below is one flight, watched live:
+      seats sell in the background as you read, each one pushing the price up
+      to its next bracket. Click <strong>Wait</strong> to let more time (and
+      more buyers) pass, or <strong>Book now</strong> to lock in today's
+      price.
     </p>
 
     <div class="plane-picker">
@@ -59,12 +94,8 @@ const seats = Array.from({ length: plane.totalSeats }, (_, i) => {
           ))
         }
       </select>
-      <p class="plane-note">
-        Wide-body long-haul demand is driven by discretionary leisure travel
-        — far less predictable than the regional and narrow-body routes
-        here. If a wide-body flight is still badly under-booked close to
-        departure, the airline may drop the price again rather than fly it
-        nearly empty; that risk doesn't apply to the other two aircraft.
+      <p class="plane-note" data-testid="plane-note">
+        {plane.note}
       </p>
     </div>
 
@@ -72,7 +103,9 @@ const seats = Array.from({ length: plane.totalSeats }, (_, i) => {
       <dl>
         <div>
           <dt>Flight</dt>
-          <dd>QF738 CBR&rarr;SYD</dd>
+          <dd data-testid="flight-number">
+            {plane.flightNumber} {plane.route}
+          </dd>
         </div>
         <div>
           <dt>Days to departure</dt>
@@ -92,20 +125,27 @@ const seats = Array.from({ length: plane.totalSeats }, (_, i) => {
     <div
       class="seat-map"
       data-testid="seat-map"
-      data-cols={plane.columns}
-      style={`--seat-cols: ${plane.columns}`}
+      data-plane={plane.id}
       aria-label="Seat map"
     >
       {
-        seats.map((seat) => (
-          <button
-            type="button"
-            class="seat"
-            data-index={seat.index}
-            data-status={seat.sold ? "sold" : "available"}
-            aria-label={seat.label}
-            tabindex={seat.index === 0 ? 0 : -1}
-          />
+        sectionGroups.map((group) => (
+          <div class="cabin-section">
+            <h2 class="cabin-heading">{group.section.label}</h2>
+            <div class="cabin-grid" style={`--cols: ${group.cols}`}>
+              {group.entries.map((entry) => (
+                <button
+                  type="button"
+                  class="seat"
+                  data-index={entry.index}
+                  data-status={soldSet.has(entry.index) ? "sold" : "available"}
+                  data-aisle-after={entry.aisleAfter ? "true" : undefined}
+                  aria-label={seatLabel(entry.index)}
+                  tabindex={entry.index === 0 ? 0 : -1}
+                />
+              ))}
+            </div>
+          </div>
         ))
       }
     </div>
@@ -128,7 +168,7 @@ const seats = Array.from({ length: plane.totalSeats }, (_, i) => {
       }. {startDays} days to departure.
     </p>
 
-    <div class="controls">
+    <div class="controls" id="controls">
       <button type="button" data-testid="wait-button">Wait</button>
       <button type="button" data-testid="book-button">Book now</button>
       <button type="button" class="reset-button" data-testid="reset-button">

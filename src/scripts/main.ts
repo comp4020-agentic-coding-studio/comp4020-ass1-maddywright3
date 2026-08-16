@@ -1,8 +1,11 @@
 import {
   PLANE_TYPES,
   type PlaneType,
+  buildSeatLayout,
   initialSeatSaleInfo,
   priceForFlight,
+  priceForSeat,
+  sectionForSeat,
 } from "./price";
 
 const seatMap = document.querySelector<HTMLElement>('[data-testid="seat-map"]');
@@ -25,6 +28,12 @@ const resetButton = document.querySelector<HTMLButtonElement>(
 const planeSelect = document.querySelector<HTMLSelectElement>(
   '[data-testid="plane-select"]',
 );
+const planeNoteEl = document.querySelector<HTMLElement>(
+  '[data-testid="plane-note"]',
+);
+const flightNumberEl = document.querySelector<HTMLElement>(
+  '[data-testid="flight-number"]',
+);
 const resultEl = document.querySelector<HTMLElement>('[data-testid="result"]');
 const resultTextEl = document.querySelector<HTMLElement>(
   '[data-testid="result-text"]',
@@ -44,6 +53,8 @@ if (
   waitButton &&
   bookButton &&
   resetButton &&
+  planeNoteEl &&
+  flightNumberEl &&
   resultEl &&
   resultTextEl &&
   srSummaryEl &&
@@ -98,24 +109,40 @@ if (
     }
   };
 
-  const seatLabel = (idx: number, currentPrice: number): string => {
+  const seatLabel = (idx: number, currentBasePrice: number): string => {
+    const section = sectionForSeat(idx, currentPlane);
     const sale = seatSaleInfo.get(idx);
     if (sale) {
+      const soldPrice = priceForSeat(sale.price, section);
       return (
-        `Seat ${idx + 1}, sold in the $${sale.price} fare bracket, ` +
-        `about ${sale.daysBeforeDeparture} days before departure`
+        `Seat ${idx + 1}, ${section.label} (${section.perk}), sold for ` +
+        `$${soldPrice}, about ${sale.daysBeforeDeparture} days before ` +
+        "departure"
       );
     }
-    return `Seat ${idx + 1}, still available, would cost $${currentPrice} now`;
+    const price = priceForSeat(currentBasePrice, section);
+    return (
+      `Seat ${idx + 1}, ${section.label} (${section.perk}), still ` +
+      `available, would cost $${price} now`
+    );
   };
 
-  const showSeatInfo = (idx: number, currentPrice: number): void => {
+  const showSeatInfo = (idx: number, currentBasePrice: number): void => {
+    const section = sectionForSeat(idx, currentPlane);
     seatInfoEl.hidden = false;
     const sale = seatSaleInfo.get(idx);
-    seatInfoEl.textContent = sale
-      ? `Seat ${idx + 1} — sold in the $${sale.price} fare bracket, about ` +
-        `${sale.daysBeforeDeparture} days before departure.`
-      : `Seat ${idx + 1} — still available. Booking it now would cost $${currentPrice}.`;
+    if (sale) {
+      const soldPrice = priceForSeat(sale.price, section);
+      seatInfoEl.textContent =
+        `Seat ${idx + 1} — ${section.label} (${section.perk}). Sold for ` +
+        `$${soldPrice}, about ${sale.daysBeforeDeparture} days before ` +
+        "departure.";
+      return;
+    }
+    const price = priceForSeat(currentBasePrice, section);
+    seatInfoEl.textContent =
+      `Seat ${idx + 1} — ${section.label} (${section.perk}). Still ` +
+      `available. Booking it now would cost $${price}.`;
   };
 
   const render = (): number => {
@@ -244,11 +271,18 @@ if (
       });
 
       seat.addEventListener("keydown", (event) => {
+        // Up/Down step by the current seat's own row width — sections can
+        // have different widths (business vs economy), so this isn't a
+        // single plane-wide constant any more.
+        const rowWidth = sectionForSeat(idx, currentPlane).columnGroups.reduce(
+          (a, b) => a + b,
+          0,
+        );
         const deltas: Record<string, number> = {
           ArrowRight: 1,
           ArrowLeft: -1,
-          ArrowDown: currentPlane.columns,
-          ArrowUp: -currentPlane.columns,
+          ArrowDown: rowWidth,
+          ArrowUp: -rowWidth,
         };
         const delta = deltas[event.key];
         if (delta === undefined) return;
@@ -260,19 +294,41 @@ if (
   };
 
   const buildSeatMap = (): void => {
+    seatMap.dataset.plane = currentPlane.id;
     seatMap.innerHTML = "";
-    seatMap.style.setProperty("--seat-cols", String(currentPlane.columns));
-    seatMap.dataset.cols = String(currentPlane.columns);
     const fragment = document.createDocumentFragment();
-    for (let i = 0; i < currentPlane.totalSeats; i++) {
+    let currentSection: (typeof currentPlane.cabinSections)[number] | null =
+      null;
+    let sectionGrid: HTMLElement | null = null;
+
+    for (const entry of buildSeatLayout(currentPlane)) {
+      if (entry.section !== currentSection) {
+        currentSection = entry.section;
+        const wrapper = document.createElement("div");
+        wrapper.className = "cabin-section";
+        const heading = document.createElement("h2");
+        heading.className = "cabin-heading";
+        heading.textContent = entry.section.label;
+        wrapper.appendChild(heading);
+        sectionGrid = document.createElement("div");
+        sectionGrid.className = "cabin-grid";
+        sectionGrid.style.setProperty(
+          "--cols",
+          String(entry.section.columnGroups.reduce((a, b) => a + b, 0)),
+        );
+        wrapper.appendChild(sectionGrid);
+        fragment.appendChild(wrapper);
+      }
       const button = document.createElement("button");
       button.type = "button";
       button.className = "seat";
-      button.dataset.index = String(i);
-      button.dataset.status = sold.has(i) ? "sold" : "available";
-      button.tabIndex = i === 0 ? 0 : -1;
-      fragment.appendChild(button);
+      button.dataset.index = String(entry.index);
+      button.dataset.status = sold.has(entry.index) ? "sold" : "available";
+      if (entry.aisleAfter) button.dataset.aisleAfter = "true";
+      button.tabIndex = entry.index === 0 ? 0 : -1;
+      sectionGrid?.appendChild(button);
     }
+
     seatMap.appendChild(fragment);
     seatEls = Array.from(seatMap.querySelectorAll<HTMLElement>(".seat"));
     attachSeatListeners();
@@ -286,6 +342,7 @@ if (
       BOOKING_WINDOW_START_DAYS,
       plane.totalSeats,
       plane.initialSoldIndices,
+      plane.fareBuckets,
     );
     daysToDeparture = START_DAYS;
     locked = false;
@@ -295,6 +352,8 @@ if (
     resultEl.hidden = true;
     seatInfoEl.hidden = true;
     seatInfoEl.textContent = "";
+    planeNoteEl.textContent = plane.note;
+    flightNumberEl.textContent = `${plane.flightNumber} ${plane.route}`;
     if (ambientTimer !== undefined) window.clearInterval(ambientTimer);
 
     buildSeatMap();
@@ -302,8 +361,12 @@ if (
     lastRenderedPrice = openingPrice;
     render();
 
+    // The primary clock: the flight sells and moves toward departure on its
+    // own if the visitor does nothing but watch. Wait (below) just
+    // fast-forwards both of these by a bigger step.
     ambientTimer = window.setInterval(() => {
       if (locked) return;
+      daysToDeparture = Math.max(0, daysToDeparture - 1);
       sellSeats(currentPlane.ambientSell, daysToDeparture);
       render();
       checkForcedEnd();

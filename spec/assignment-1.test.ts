@@ -7,9 +7,12 @@ import {
   INITIAL_SOLD_SEAT_INDICES,
   PLANE_TYPES,
   TOTAL_SEATS,
+  buildSeatLayout,
   evenlySpacedIndices,
   priceForFlight,
   priceForLoadFactor,
+  priceForSeat,
+  sectionForSeat,
 } from "../src/scripts/price";
 
 // Assignment 1 spec (https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/assessments/assignment-1/)
@@ -105,7 +108,9 @@ describe("plane types and the distress-discount exception", () => {
         for (const days of [60, 30, 15, 1]) {
           const { price, distressed } = priceForFlight(sold, plane, days);
           expect(distressed).toBe(false);
-          expect(price).toBe(priceForLoadFactor(sold, plane.totalSeats));
+          expect(price).toBe(
+            priceForLoadFactor(sold, plane.totalSeats, plane.fareBuckets),
+          );
         }
       }
     }
@@ -118,7 +123,7 @@ describe("plane types and the distress-discount exception", () => {
       for (const days of [60, 30, 20, 10, 1]) {
         const { price } = priceForFlight(sold, widebody, days);
         expect(price).toBeLessThanOrEqual(
-          priceForLoadFactor(sold, widebody.totalSeats),
+          priceForLoadFactor(sold, widebody.totalSeats, widebody.fareBuckets),
         );
       }
     }
@@ -132,26 +137,109 @@ describe("plane types and the distress-discount exception", () => {
     // factor, so the normal curve always applies.
     const early = priceForFlight(70, widebody, 60);
     expect(early).toEqual({
-      price: priceForLoadFactor(70, widebody.totalSeats),
+      price: priceForLoadFactor(70, widebody.totalSeats, widebody.fareBuckets),
       distressed: false,
     });
 
     // Near departure (10 days out, inside the 20-day window), badly
     // under-booked (125/180 ≈ 69% < the 75% distress threshold): normal
-    // curve says $159, but the distress rule undercuts it back to $89.
+    // curve says $799, but the distress rule undercuts it back to $549
+    // (widebody's own cheapest bucket, not the domestic regional floor).
     const underBooked = priceForFlight(125, widebody, 10);
-    expect(priceForLoadFactor(125, widebody.totalSeats)).toBe(159);
-    expect(underBooked).toEqual({ price: 89, distressed: true });
+    expect(
+      priceForLoadFactor(125, widebody.totalSeats, widebody.fareBuckets),
+    ).toBe(799);
+    expect(underBooked).toEqual({ price: 549, distressed: true });
 
     // Near departure (10 days out), but well-booked (170/180 ≈ 94% >= the
     // 75% threshold): distress condition doesn't hold, so the normal
     // (much higher) curve price stands untouched.
     const wellBooked = priceForFlight(170, widebody, 10);
     expect(wellBooked).toEqual({
-      price: priceForLoadFactor(170, widebody.totalSeats),
+      price: priceForLoadFactor(170, widebody.totalSeats, widebody.fareBuckets),
       distressed: false,
     });
     expect(wellBooked.price).toBeGreaterThan(underBooked.price);
+  });
+
+  it("has strictly increasing thresholds and prices for every plane's own fare curve", () => {
+    for (const plane of PLANE_TYPES) {
+      for (let i = 1; i < plane.fareBuckets.length; i++) {
+        expect(plane.fareBuckets[i].maxLoadFactor).toBeGreaterThan(
+          plane.fareBuckets[i - 1].maxLoadFactor,
+        );
+        expect(plane.fareBuckets[i].price).toBeGreaterThan(
+          plane.fareBuckets[i - 1].price,
+        );
+      }
+    }
+  });
+
+  it("prices the three routes realistically apart: narrowbody cheapest, then regional, then widebody", () => {
+    const [regional, narrowbody, widebody] = PLANE_TYPES;
+    expect(narrowbody.fareBuckets[0].price).toBeLessThan(
+      regional.fareBuckets[0].price,
+    );
+    expect(regional.fareBuckets[0].price).toBeLessThan(
+      widebody.fareBuckets[0].price,
+    );
+    const last = (p: (typeof PLANE_TYPES)[number]) =>
+      p.fareBuckets[p.fareBuckets.length - 1].price;
+    expect(last(narrowbody)).toBeLessThan(last(regional));
+    expect(last(regional)).toBeLessThan(last(widebody));
+  });
+});
+
+describe("cabin sections (display-layer pricing, layered on the same base fare)", () => {
+  it("every plane's cabin-section seat counts sum to its totalSeats", () => {
+    for (const plane of PLANE_TYPES) {
+      const sectionSeats = plane.cabinSections.reduce(
+        (sum, section) =>
+          sum + section.rows * section.columnGroups.reduce((a, b) => a + b, 0),
+        0,
+      );
+      expect(sectionSeats).toBe(plane.totalSeats);
+    }
+  });
+
+  it("buildSeatLayout produces exactly one entry per seat, in order, for every plane", () => {
+    for (const plane of PLANE_TYPES) {
+      const layout = buildSeatLayout(plane);
+      expect(layout.length).toBe(plane.totalSeats);
+      layout.forEach((entry, i) => expect(entry.index).toBe(i));
+    }
+  });
+
+  it("sectionForSeat returns the right section at each layout's boundaries", () => {
+    const narrowbody = PLANE_TYPES.find((p) => p.id === "narrowbody");
+    if (!narrowbody) throw new Error("narrowbody plane type not found");
+    const [business, premium, economy] = narrowbody.cabinSections;
+    // Business: rows 3 x (2+2) = 12 seats -> indices 0..11.
+    expect(sectionForSeat(0, narrowbody)).toBe(business);
+    expect(sectionForSeat(11, narrowbody)).toBe(business);
+    // Premium economy: rows 3 x (3+3) = 18 seats -> indices 12..29.
+    expect(sectionForSeat(12, narrowbody)).toBe(premium);
+    expect(sectionForSeat(29, narrowbody)).toBe(premium);
+    // Economy: the remaining 66 seats -> indices 30..95.
+    expect(sectionForSeat(30, narrowbody)).toBe(economy);
+    expect(sectionForSeat(95, narrowbody)).toBe(economy);
+  });
+
+  it("priceForSeat scales the base fare by the section multiplier, and Economy is exactly the base fare", () => {
+    const narrowbody = PLANE_TYPES.find((p) => p.id === "narrowbody");
+    if (!narrowbody) throw new Error("narrowbody plane type not found");
+    const [business, premium, economy] = narrowbody.cabinSections;
+    const basePrice = 159;
+    // Economy multiplier is exactly 1, so this is the same price Wait/Book
+    // already operate on -- the cabin-class layer changes nothing about it.
+    expect(economy.priceMultiplier).toBe(1);
+    expect(priceForSeat(basePrice, economy)).toBe(basePrice);
+    expect(priceForSeat(basePrice, premium)).toBe(
+      Math.round(basePrice * premium.priceMultiplier),
+    );
+    expect(priceForSeat(basePrice, business)).toBe(
+      Math.round(basePrice * business.priceMultiplier),
+    );
   });
 });
 

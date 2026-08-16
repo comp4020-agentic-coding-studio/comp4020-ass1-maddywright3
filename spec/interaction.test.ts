@@ -180,6 +180,29 @@ describe.skipIf(!distExists)("core interaction: real clicks in a browser", () =>
     expect(await page.getByTestId("book-button").isDisabled()).toBe(false);
   });
 
+  it("clicking a business-cabin seat shows its own higher price and label, distinct from an economy seat's", async () => {
+    await page.getByTestId("plane-select").selectOption("narrowbody");
+
+    const seatButtons = page.locator('[data-testid="seat-map"] .seat');
+    const seatInfoEl = page.getByTestId("seat-info");
+
+    // Narrowbody's first cabin section is Business (seats 0-11); the last
+    // section is Economy (seats 30-95) -- see spec/assignment-1.test.ts's
+    // "sectionForSeat" boundary test for the exact layout this depends on.
+    await seatButtons.nth(0).click();
+    const businessInfo = await seatInfoEl.textContent();
+    expect(businessInfo).toContain("Business");
+
+    await seatButtons.nth(95).click();
+    const economyInfo = await seatInfoEl.textContent();
+    expect(economyInfo).toContain("Economy");
+    expect(economyInfo).not.toBe(businessInfo);
+
+    const businessPrice = Number(businessInfo?.match(/\$(\d+)/)?.[1]);
+    const economyPrice = Number(economyInfo?.match(/\$(\d+)/)?.[1]);
+    expect(businessPrice).toBeGreaterThan(economyPrice);
+  });
+
   it("the wide-body aircraft can drop its price back down before departure (the distress discount)", async () => {
     await page.getByTestId("plane-select").selectOption("widebody");
 
